@@ -60,7 +60,7 @@ function WorldMap({ projectId: _projectId }: WorldMapProps) {
 
   useEffect(() => {
     if (projectId) {
-      window.aetherDesktop?.listMapPins(projectId).then(setPins)
+      window.electronAPI?.map.list(projectId).then(setPins)
     }
   }, [projectId])
 
@@ -90,7 +90,7 @@ function WorldMap({ projectId: _projectId }: WorldMapProps) {
       connections: [],
     }
     
-    await window.aetherDesktop?.saveMapPin(pin)
+    await window.electronAPI?.map.save(pin)
     setPins((prev) => [...prev, pin])
     
     setPendingPos(null)
@@ -129,7 +129,7 @@ function WorldMap({ projectId: _projectId }: WorldMapProps) {
 
   const deletePin = async (id: string) => {
     if (!window.confirm('Delete this map location?')) return
-    await window.aetherDesktop?.deleteMapPin(id)
+    await window.electronAPI?.map.delete(id)
     setPins((prev) => prev.filter((p) => p.id !== id).map((p) => ({ ...p, connections: p.connections.filter((c) => c !== id) })))
     setPopup(null)
   }

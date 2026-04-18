@@ -31,7 +31,7 @@ function spawnMcpServer(databasePath: string) {
 }
 
 function createMainWindow() {
-  const preloadPath = join(currentDirectory, 'preload.js')
+  const preloadPath = join(currentDirectory, 'preload.cjs')
   const window = new BrowserWindow({
     width: 1520,
     height: 960,
@@ -91,6 +91,7 @@ function registerIpcHandlers(repo: any) {
 
 app.whenReady().then(() => {
   const dbPath = process.env.AETHER_DB_PATH ?? join(app.getPath('userData'), 'data', 'aether.db')
+  console.log('[Aether] Database path:', dbPath)
   repository = createProjectRepository(dbPath)
   registerIpcHandlers(repository)
 

@@ -31,21 +31,16 @@ function formatDate(value: string) {
 
 function App() {
   const desktopApi = useMemo(() => {
-    const isElectron = navigator.userAgent.toLowerCase().includes('electron')
-    const bridgeApi = window.aetherDesktop
+    const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI
+    const api = isElectron ? (window as any).electronAPI : getDesktopApi()
 
-    if (isElectron) {
-      if (bridgeApi) {
-        return bridgeApi
-      } else {
-        console.error('CRITICAL: Electron detected but aetherDesktop bridge is missing!')
-        // We could throw here, but let's at least try the fallback so the UI isn't dead,
-        // while logged a huge error.
-        return getDesktopApi()
-      }
+    console.log('[Aether] API mode:', isElectron ? 'Electron IPC' : 'Fallback (in-memory)')
+
+    if (!isElectron) {
+      console.warn('[Aether] Running in browser fallback mode — data will not persist')
     }
 
-    return getDesktopApi()
+    return api
   }, [])
   const latestVersionTimestampRef = useRef<number>(0)
   const saveInFlightRef = useRef(false)
@@ -112,7 +107,7 @@ function App() {
 
   useEffect(() => {
     let cancelled = false
-    void desktopApi.listProjects().then((nextProjects) => {
+    void desktopApi.projects.list().then((nextProjects) => {
       if (cancelled) return
       setProjects(nextProjects)
       const preferred =
@@ -146,7 +141,7 @@ function App() {
     }
 
     setIsWorkspaceLoading(true)
-    void desktopApi.listPages(activeProject.id).then((nextPages) => {
+    void desktopApi.pages.list(activeProject.id).then((nextPages) => {
       if (cancelled) return
       setPages(nextPages)
       setActivePageId((current) => (nextPages.some((page) => page.id === current) ? current : nextPages[0]?.id ?? null))
@@ -163,7 +158,7 @@ function App() {
     if (!activeProject || !activePageId) return undefined
 
     setIsWorkspaceLoading(true)
-    void desktopApi.getPage(activePageId).then((document) => {
+    void desktopApi.pages.get(activePageId).then((document) => {
       if (cancelled) return
       applyPageDocument(document)
       setIsWorkspaceLoading(false)
@@ -179,7 +174,7 @@ function App() {
     saveInFlightRef.current = true
     setSaveMessage('Saving changes...')
     try {
-      const document = await desktopApi.savePage({ pageId: activePageId, title: pageTitle, blocks: draftBlocks, createVersion })
+      const document = await desktopApi.pages.save({ pageId: activePageId, title: pageTitle, blocks: draftBlocks, createVersion })
       applyPageDocument(document)
       setPages((current) => current.map((page) => (page.id === document.page.id ? { ...page, title: document.page.title } : page)))
       setProjects((current) => current.map((project) => (project.id === activeProject.id ? { ...project, lastEditedAt: new Date().toISOString() } : project)))
@@ -200,7 +195,7 @@ function App() {
   const createProject = async () => {
     const trimmed = newProjectName.trim()
     if (!trimmed) return
-    const created = await desktopApi.createProject({ name: trimmed, type: newProjectType })
+    const created = await desktopApi.projects.create({ name: trimmed, type: newProjectType })
     setProjects((current) => [created, ...current])
     setActiveProjectId(created.id)
     setNewProjectName('')
@@ -210,8 +205,8 @@ function App() {
 
   const createPage = async (parentId: number | null) => {
     if (!activeProject) return
-    const created = await desktopApi.createPage({ projectId: activeProject.id, parentId, title: parentId === null ? 'New Page' : 'New Sub-page' })
-    setPages(await desktopApi.listPages(activeProject.id))
+    const created = await desktopApi.pages.create({ projectId: activeProject.id, parentId, title: parentId === null ? 'New Page' : 'New Sub-page' })
+    setPages(await desktopApi.pages.list(activeProject.id))
     setActivePageId(created.id)
   }
 
@@ -266,13 +261,13 @@ function App() {
     if (!draggingPageId || !activeProject) return
     if (draggingPageId === targetPageId) return
     if (collectDescendantIds(pages, draggingPageId).has(targetPageId)) return
-    setPages(await desktopApi.movePage({ pageId: draggingPageId, targetPageId }))
+    setPages(await desktopApi.pages.move({ pageId: draggingPageId, targetPageId }))
     setDraggingPageId(null)
   }
 
   const addComment = async () => {
     if (!activePageId || !selectedBlock || !newCommentText.trim()) return
-    const document = await desktopApi.addComment({ pageId: activePageId, blockKey: selectedBlock.blockKey, body: newCommentText })
+    const document = await desktopApi.pages.comment({ pageId: activePageId, blockKey: selectedBlock.blockKey, body: newCommentText })
     applyPageDocument(document)
     setNewCommentText('')
   }
@@ -280,7 +275,7 @@ function App() {
   const restoreVersion = async (versionId: number) => {
     if (!activePageId) return
     setSaveMessage('Restoring version...')
-    applyPageDocument(await desktopApi.restoreVersion({ pageId: activePageId, versionId }))
+    applyPageDocument(await desktopApi.pages.restoreVersion({ pageId: activePageId, versionId }))
   }
 
   const replaceDraftBlocks = (updater: (blocks: PageBlock[]) => PageBlock[]) => {
@@ -302,7 +297,7 @@ function App() {
 
     const nextArcNumber =
       draftBlocks.filter((block) => block.type === 'arc-card').length + 1
-    const created = await desktopApi.createPage({
+    const created = await desktopApi.pages.create({
       projectId: activeProject.id,
       parentId: outlinePage.id,
       title: `Arc ${nextArcNumber} - New Arc`,
@@ -335,14 +330,14 @@ function App() {
       },
     ]
 
-    await desktopApi.savePage({
+    await desktopApi.pages.save({
       pageId: created.id,
       title: created.title,
       blocks: arcBlocks,
       createVersion: true,
     })
 
-    setPages(await desktopApi.listPages(activeProject.id))
+    setPages(await desktopApi.pages.list(activeProject.id))
     replaceDraftBlocks((blocks) => [
       ...blocks,
       {
@@ -366,7 +361,7 @@ function App() {
     const chapterCount =
       draftBlocks.filter((block) => block.type === 'chapter-link-card').length + 1
     const chapterTitle = `Chapter ${chapterCount} - New Chapter`
-    const created = await desktopApi.createPage({
+    const created = await desktopApi.pages.create({
       projectId: activeProject.id,
       parentId: activePage.id,
       title: chapterTitle,
@@ -412,7 +407,7 @@ function App() {
     replaceDraftBlocks((blocks) => [...blocks, linkBlock])
 
     if (outlinePage) {
-      const outlineDocument = await desktopApi.getPage(outlinePage.id)
+      const outlineDocument = await desktopApi.pages.get(outlinePage.id)
       const updatedOutlineBlocks = outlineDocument.blocks.map((block) => {
         if (block.type !== 'arc-card' || Number(block.data.arcPageId) !== activePage.id) {
           return block
@@ -436,7 +431,7 @@ function App() {
         }
       })
 
-      await desktopApi.savePage({
+      await desktopApi.pages.save({
         pageId: outlinePage.id,
         title: outlineDocument.page.title,
         blocks: updatedOutlineBlocks,
@@ -444,7 +439,7 @@ function App() {
       })
     }
 
-    setPages(await desktopApi.listPages(activeProject.id))
+    setPages(await desktopApi.pages.list(activeProject.id))
   }
 
   // ── enter workspace ───────────────────────────────────────────────────────
@@ -460,7 +455,7 @@ function App() {
 
   const handleDeleteProject = async (projectId: number) => {
     if (!window.confirm('Permanently delete this project and all its pages? This cannot be undone.')) return
-    await desktopApi.deleteProject(projectId)
+    await desktopApi.projects.delete(projectId)
     setProjects((prev) => prev.filter((p) => p.id !== projectId))
     if (activeProjectId === projectId) {
       setActiveProjectId(null)

@@ -3,7 +3,7 @@
   "description": "Aether Writing Studio - AI Native Novel Editor",
   "author": "Aether Team",
   "private": true,
-  "version": "1.0.7",
+  "version": "1.0.8",
   "main": "dist-electron/electron/main.js",
   "type": "module",
   "scripts": {
